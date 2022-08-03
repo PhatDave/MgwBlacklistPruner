@@ -1,5 +1,6 @@
 const fs = require("fs");
 const {Client} = require('pg')
+const cliProgress = require('cli-progress');
 
 const BLACKLIST_QUERY = "SELECT * FROM blacklist";
 const DELETE_QUERY = "DELETE FROM blacklist_entry WHERE blacklist_id = $1 AND msisdn = $2";
@@ -85,24 +86,28 @@ connectToDb().then(async () => {
 	let blacklists = await runQuery(BLACKLIST_QUERY);
 	let globalBlacklistId = findGlobalBlacklist(blacklists);
 
+	const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
+	bar.start(fileData.length, 0);
 	let deletedEntries = [];
 	fileData.forEach((item) => {
-		console.log(FgYellow + `Deleting ${item.trim()}`);
+		// console.log(FgYellow + `Deleting ${item.trim()}`);
 		client.query(DELETE_QUERY, [
 			globalBlacklistId,
 			item.trim()
 		], (err, res) => {
 			if (err) {
-				console.log(FgRed + `Error deleting ${item.trim()}`);
+				console.error(err.stack);
+				// console.log(FgRed + `Error deleting ${item.trim()}`);
 			} else {
-				console.log(FgGreen + `Deleted ${item.trim()}`);
+				// console.log(FgGreen + `Deleted ${item.trim()}`);
 			}
 			deletedEntries.push(item.trim());
+			bar.update(deletedEntries.length);
 		});
 	})
 	while (deletedEntries.length < fileData.length) {
 		await new Promise(r => setTimeout(r, 100));
 	}
-	console.log(FgWhite + `\nProcessed ${deletedEntries.length}/${fileData.length} entries`);
+	console.log(FgWhite + `\n\nProcessed ${deletedEntries.length}/${fileData.length} entries`);
 	process.exit(0);
 })
