@@ -41,6 +41,7 @@ if (process.argv.length < 5) {
 	let authKey = ""
 	try {
 		authKey = fs.readFileSync("auth.txt", "utf8").trim()
+		console.log(FgGreen + "auth.txt found" + FgWhite);
 	} catch (e) {
 		console.log(FgRed + "auth.txt not found" + FgWhite);
 	}
