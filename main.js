@@ -10,28 +10,32 @@ const FgGreen = "\x1b[32m"
 const FgYellow = "\x1b[33m"
 const FgWhite = "\x1b[37m"
 
+function log(message) {
+	console.log(`${FgWhite}${message}${FgWhite}`);
+}
+
 if (process.argv.length < 4) {
-	console.log(FgRed + "Insufficient parameters")
-	console.log(FgWhite + `Usage: ${FgYellow}main-<system> <textFile> <connectionString>`);
-	console.log(FgWhite + "Text file is expected to have a list of msisdns to be removed separated by newline");
-	console.log(FgWhite + `Connection string is expected in the form of ${FgYellow}user:password@host:port/database`);
-	console.log(FgWhite + `Example: ${FgGreen}./main-win.exe lista.txt mgw3:mgw3@localhost:5432/mgw3`);
-	console.log(FgWhite + `Example: ${FgGreen}./main-linux lista.txt mgw3:mgw3@localhost:5432/mgw3`);
+	log(FgRed + "Insufficient parameters")
+	log(`Usage: ${FgYellow}main-<system> <textFile> <connectionString>`);
+	log("Text file is expected to have a list of msisdns to be removed separated by newline");
+	log(`Connection string is expected in the form of ${FgYellow}user:password@host:port/database`);
+	log(`Example: ${FgGreen}./main-win.exe lista.txt mgw3:mgw3@localhost:5432/mgw3`);
+	log(`Example: ${FgGreen}./main-linux lista.txt mgw3:mgw3@localhost:5432/mgw3`);
 	process.exit(1);
 } else {
 	if (!fs.existsSync(process.argv[2])) {
-		console.log(FgRed + `File ${process.argv[2]} does not exist`);
+		log(FgRed + `File ${process.argv[2]} does not exist`);
 		process.exit(2);
 	}
 	const fileName = process.argv[2];
 	const connectionString = process.argv[3];
-	const connectionRe = /([a-zA-Z0-9]+):([a-zA-Z0-9]+)@([a-zA-Z0-9]+):([0-9]+)\/([a-zA-Z0-9]+)/
+	const connectionRe = /([a-zA-Z0-9]+):([a-zA-Z0-9]+)@([a-zA-Z0-9-.:,]+):([0-9]+)\/([a-zA-Z0-9]+)/
 	const connectionMatch = connectionRe.exec(connectionString);
 	if (connectionMatch === null || connectionMatch.length !== 6) {
-		console.log(FgRed + "Invalid connection string");
-		console.log(FgWhite + `Connection string is expected in the form of ${FgYellow}user:password@host:port/database`);
-		console.log(FgWhite + `Example: ${FgGreen}./main-win.exe lista.txt mgw3:mgw3@localhost:5432/mgw3`);
-		console.log(FgWhite + `Example: ${FgGreen}./main-linux lista.txt mgw3:mgw3@localhost:5432/mgw3`);
+		log(FgRed + "Invalid connection string");
+		log(`Connection string is expected in the form of ${FgYellow}user:password@host:port/database`);
+		log(`Example: ${FgGreen}./main-win.exe lista.txt mgw3:mgw3@localhost:5432/mgw3`);
+		log(`Example: ${FgGreen}./main-linux lista.txt mgw3:mgw3@localhost:5432/mgw3`);
 		process.exit(3);
 	}
 
@@ -50,7 +54,7 @@ if (process.argv.length < 4) {
 	})
 
 	var fileData = fs.readFileSync(fileName, "utf8").trim().split("\n");
-	console.log(`Loaded ${fileData.length} lines from ${fileName}\n`);
+	log(`Loaded ${fileData.length} lines from ${fileName}\n`);
 }
 
 async function connectToDb() {
@@ -108,6 +112,6 @@ connectToDb().then(async () => {
 	while (deletedEntries.length < fileData.length) {
 		await new Promise(r => setTimeout(r, 100));
 	}
-	console.log(FgWhite + `\n\nProcessed ${deletedEntries.length}/${fileData.length} entries`);
+	log(FgWhite + `\n\nProcessed ${deletedEntries.length}/${fileData.length} entries`);
 	process.exit(0);
 })
