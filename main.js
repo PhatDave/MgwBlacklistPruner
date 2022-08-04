@@ -1,22 +1,20 @@
 const fs = require("fs");
-const {Client} = require('pg')
 const cliProgress = require('cli-progress');
-
-const BLACKLIST_QUERY = "SELECT * FROM blacklist";
-const DELETE_QUERY = "DELETE FROM blacklist_entry WHERE blacklist_id = $1 AND msisdn = $2";
+const unirest = require('unirest');
 
 const FgRed = "\x1b[31m"
 const FgGreen = "\x1b[32m"
 const FgYellow = "\x1b[33m"
 const FgWhite = "\x1b[37m"
 
-if (process.argv.length < 4) {
+if (process.argv.length < 5) {
 	console.log(FgRed + "Insufficient parameters")
-	console.log(FgWhite + `Usage: ${FgYellow}main-<system> <textFile> <connectionString>`);
+	console.log(FgWhite + `Usage: ${FgYellow}main-<system> <textFile> <connectionString> <blacklistName>`);
 	console.log(FgWhite + "Text file is expected to have a list of msisdns to be removed separated by newline");
-	console.log(FgWhite + `Connection string is expected in the form of ${FgYellow}user:password@host:port/database`);
-	console.log(FgWhite + `Example: ${FgGreen}./main-win.exe lista.txt mgw3:mgw3@localhost:5432/mgw3`);
-	console.log(FgWhite + `Example: ${FgGreen}./main-linux lista.txt mgw3:mgw3@localhost:5432/mgw3`);
+	console.log(FgWhite + `Connection string is expected in the form of ${FgYellow}host:port ${FgWhite}and represents the location of mgw`);
+	console.log(FgWhite + "Blacklist name is the name of the blacklist from which the entries are deleted (not case sensitive)");
+	console.log(FgWhite + `Example: ${FgGreen}./main-win.exe lista.txt localhost:8877 global`);
+	console.log(FgWhite + `Example: ${FgGreen}./main-linux lista.txt localhost:8877 global`);
 	process.exit(1);
 } else {
 	if (!fs.existsSync(process.argv[2])) {
@@ -25,89 +23,146 @@ if (process.argv.length < 4) {
 	}
 	const fileName = process.argv[2];
 	const connectionString = process.argv[3];
-	const connectionRe = /([a-zA-Z0-9]+):([a-zA-Z0-9]+)@([a-zA-Z0-9]+):([0-9]+)\/([a-zA-Z0-9]+)/
+	const connectionRe = /([a-zA-Z0-9.]+):([0-9]+)/
 	const connectionMatch = connectionRe.exec(connectionString);
-	if (connectionMatch === null || connectionMatch.length !== 6) {
+	if (connectionMatch === null || connectionMatch.length !== 3) {
 		console.log(FgRed + "Invalid connection string");
-		console.log(FgWhite + `Connection string is expected in the form of ${FgYellow}user:password@host:port/database`);
-		console.log(FgWhite + `Example: ${FgGreen}./main-win.exe lista.txt mgw3:mgw3@localhost:5432/mgw3`);
-		console.log(FgWhite + `Example: ${FgGreen}./main-linux lista.txt mgw3:mgw3@localhost:5432/mgw3`);
+		console.log(FgWhite + `Connection string is expected in the form of ${FgYellow}host:port`);
+		console.log(FgWhite + `Example: ${FgGreen}./main-win.exe lista.txt localhost:8877 global`);
+		console.log(FgWhite + `Example: ${FgGreen}./main-linux lista.txt localhost:8877 global`);
 		process.exit(3);
 	}
 
-	const username = connectionMatch[1]
-	const password = connectionMatch[2]
-	const host = connectionMatch[3]
-	const port = connectionMatch[4]
-	const database = connectionMatch[5]
+	var host = connectionMatch[1];
+	var port = connectionMatch[2];
+	var blacklistName = process.argv[4];
+	var addMode = process.argv[5];
 
-	var client = new Client({
-		user: username,
-		host: host,
-		database: database,
-		password: password,
-		port: port,
-	})
-
+	// /mgw/api/blacklists
+	// /mgw/api/blacklists/1/entries/3
+	// /mgw/api/blacklists/1/entries/3/active
 	var fileData = fs.readFileSync(fileName, "utf8").trim().split("\n");
+	fileData = fileData.map(item => item.trim());
 	console.log(`Loaded ${fileData.length} lines from ${fileName}\n`);
 }
 
-async function connectToDb() {
-	await client.connect()
-}
-
-function findGlobalBlacklist(rows) {
-	let blacklistId = -1;
-	rows.forEach((item) => {
-		if (item.name.toLowerCase() === "global") {
-			blacklistId = item.id;
-			return;
-		}
+async function getBlacklistByName(name) {
+	return new Promise((resolve, reject) => {
+		unirest('GET', `http://${host}:${port}/mgw/api/blacklists?page=0&size=100&sortDir=ASC&sortProp=name`).end(res => {
+			if (res.error) throw new Error(res.error);
+			let data = res.body.content;
+			data.forEach((item) => {
+				if (item.name.toLowerCase() === name) {
+					resolve(item.id);
+				}
+			})
+		});
 	})
-	return blacklistId;
 }
 
-async function runQuery(query, params) {
-	if (!!params) {
-		return client.query(query, params).then(res => res.rows).catch(err => {
-			console.error(err.stack);
-			process.exit(1)
-		});
-	} else {
-		return client.query(query).then(res => res.rows).catch(err => {
-			console.error(err.stack);
-			process.exit(1)
-		});
-	}
-}
-
-connectToDb().then(async () => {
-	let blacklists = await runQuery(BLACKLIST_QUERY);
-	let globalBlacklistId = findGlobalBlacklist(blacklists);
-
-	const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
-	bar.start(fileData.length, 0);
-	let deletedEntries = [];
-	fileData.forEach((item) => {
-		// console.log(FgYellow + `Deleting ${item.trim()}`);
-		client.query(DELETE_QUERY, [
-			globalBlacklistId,
-			item.trim()
-		], (err, res) => {
-			if (err) {
-				console.error(err.stack);
-				// console.log(FgRed + `Error deleting ${item.trim()}`);
+async function deleteBlacklistEntry(id, entryId) {
+	return new Promise((resolve, reject) => {
+		unirest('DELETE', `http://${host}:${port}/mgw/api/blacklists/${id}/entries/${entryId}`).end(res => {
+			if (res.status === 200) {
+				resolve();
 			} else {
-				// console.log(FgGreen + `Deleted ${item.trim()}`);
+				reject();
 			}
-			deletedEntries.push(item.trim());
-			bar.update(deletedEntries.length);
 		});
 	})
-	while (deletedEntries.length < fileData.length) {
-		await new Promise(r => setTimeout(r, 100));
-	}
-	console.log(FgWhite + `\n\nProcessed ${deletedEntries.length}/${fileData.length} entries`);
+}
+
+async function deactivateBlacklistEntry(id, entryId) {
+	return new Promise((resolve, reject) => {
+		unirest('DELETE', `http://${host}:${port}/mgw/api/blacklists/${id}/entries/${entryId}/active`).end(res => {
+			if (res.status === 200) {
+				resolve();
+			} else {
+				reject();
+			}
+		});
+	})
+}
+
+async function createEntry(id, msisdn) {
+	return new Promise((resolve, reject) => {
+		unirest('POST', `http://${host}:${port}/mgw/api/blacklists/${id}/entries`).headers({
+			"Content-Type": "application/json"
+		}).send(JSON.stringify({
+			msisdn: msisdn,
+			description: null,
+			username: null
+		})).end(res => {
+			if (res.status === 201) {
+				resolve();
+			} else {
+				reject();
+			}
+		});
+
+	})
+}
+
+async function deleteBlacklistEntries(id, entriesToDelete) {
+	return new Promise((resolve, reject) => {
+		console.log("Sending get request for all entries");
+		unirest('GET', `http://${host}:${port}/mgw/api/blacklists/${id}/entries?page=0&size=1000000&sortDir=ASC&sortProp=msisdn`).end(async res => {
+			if (res.error) {
+				reject();
+			}
+			let data = res.body.content;
+			const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
+			bar.start(data.length, 0);
+
+			const forLoop = async _ => {
+				const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
+				bar.start(data.length, 0);
+				for (let index = 0; index < data.length; index++) {
+					const item = data[index]
+					if (entriesToDelete.includes(item.msisdn)) {
+						await deactivateBlacklistEntry(id, item.id);
+						await deleteBlacklistEntry(id, item.id);
+					}
+					bar.update(index);
+				}
+			}
+			await forLoop();
+
+			resolve();
+		});
+	})
+}
+
+function exit() {
+	console.log(FgGreen + "\nDone");
 	process.exit(0);
+}
+
+// todo make global not hardcoded
+getBlacklistByName(blacklistName).then(async blacklistId => {
+	if (blacklistId === -1) {
+		console.log(FgRed + `${blacklistName} not found`);
+		process.exit(4);
+	}
+	console.log(`blacklistId = ${blacklistId}`);
+	if (addMode !== undefined) {
+		console.log("Adding entries")
+		const forLoop = async _ => {
+			const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
+			bar.start(fileData.length, 0);
+			for (let index = 0; index < fileData.length; index++) {
+				const msisdn = fileData[index]
+				await createEntry(blacklistId, msisdn)
+				bar.update(index);
+			}
+		}
+		await forLoop().then(() => {
+			exit();
+		})
+	} else {
+		console.log("Deleting entries")
+		deleteBlacklistEntries(blacklistId, fileData).then(() => {
+			exit();
+		})
+	}
 })
