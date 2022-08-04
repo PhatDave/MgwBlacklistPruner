@@ -14,7 +14,7 @@ if (process.argv.length < 5) {
 	console.log(FgWhite + `Connection string is expected in the form of ${FgYellow}host:port ${FgWhite}and represents the location of mgw`);
 	console.log(FgWhite + "Blacklist name is the name of the blacklist from which the entries are deleted (not case sensitive)");
 	console.log(FgWhite + `Example: ${FgGreen}./main-win.exe lista.txt localhost:8877 global`);
-	console.log(FgWhite + `Example: ${FgGreen}./main-linux lista.txt localhost:8877 global`);
+	console.log(FgWhite + `Example: ${FgGreen}./main-linux lista.txt localhost:8877 global${FgWhite}`);
 	process.exit(1);
 } else {
 	if (!fs.existsSync(process.argv[2])) {
@@ -38,9 +38,16 @@ if (process.argv.length < 5) {
 	var blacklistName = process.argv[4];
 	var addMode = process.argv[5];
 
-	// /mgw/api/blacklists
-	// /mgw/api/blacklists/1/entries/3
-	// /mgw/api/blacklists/1/entries/3/active
+	let authKey = ""
+	try {
+		authKey = fs.readFileSync("auth.txt", "utf8").trim()
+	} catch (e) {
+		console.log(FgRed + "auth.txt not found" + FgWhite);
+	}
+	var globalHeaders = {
+		"Authorization": authKey
+	}
+
 	var fileData = fs.readFileSync(fileName, "utf8").trim().split("\n");
 	fileData = fileData.map(item => item.trim());
 	console.log(`Loaded ${fileData.length} lines from ${fileName}\n`);
@@ -48,7 +55,9 @@ if (process.argv.length < 5) {
 
 async function getBlacklistByName(name) {
 	return new Promise((resolve, reject) => {
-		unirest('GET', `http://${host}:${port}/mgw/api/blacklists?page=0&size=100&sortDir=ASC&sortProp=name`).end(res => {
+		unirest('GET', `http://${host}:${port}/mgw/api/blacklists?page=0&size=100&sortDir=ASC&sortProp=name`).headers({
+			"Authorization": globalHeaders.Authorization
+		}).end(res => {
 			if (res.error) throw new Error(res.error);
 			let data = res.body.content;
 			data.forEach((item) => {
@@ -62,7 +71,9 @@ async function getBlacklistByName(name) {
 
 async function deleteBlacklistEntry(id, entryId) {
 	return new Promise((resolve, reject) => {
-		unirest('DELETE', `http://${host}:${port}/mgw/api/blacklists/${id}/entries/${entryId}`).end(res => {
+		unirest('DELETE', `http://${host}:${port}/mgw/api/blacklists/${id}/entries/${entryId}`).headers({
+			"Authorization": globalHeaders.Authorization
+		}).end(res => {
 			if (res.status === 200) {
 				resolve();
 			} else {
@@ -74,7 +85,9 @@ async function deleteBlacklistEntry(id, entryId) {
 
 async function deactivateBlacklistEntry(id, entryId) {
 	return new Promise((resolve, reject) => {
-		unirest('DELETE', `http://${host}:${port}/mgw/api/blacklists/${id}/entries/${entryId}/active`).end(res => {
+		unirest('DELETE', `http://${host}:${port}/mgw/api/blacklists/${id}/entries/${entryId}/active`).headers({
+			"Authorization": globalHeaders.Authorization
+		}).end(res => {
 			if (res.status === 200) {
 				resolve();
 			} else {
@@ -87,7 +100,8 @@ async function deactivateBlacklistEntry(id, entryId) {
 async function createEntry(id, msisdn) {
 	return new Promise((resolve, reject) => {
 		unirest('POST', `http://${host}:${port}/mgw/api/blacklists/${id}/entries`).headers({
-			"Content-Type": "application/json"
+			"Content-Type": "application/json",
+			"Authorization": globalHeaders.Authorization
 		}).send(JSON.stringify({
 			msisdn: msisdn,
 			description: null,
