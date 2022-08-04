@@ -1,0 +1,5 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="main.js old" type="NodeJSConfigurationType" application-parameters="lista.txt mgw3:mgw3@localhost:5432/mgw3" path-to-js-file="main.js" working-dir="$PROJECT_DIR$">
+    <method v="2" />
+  </configuration>
+</component>
